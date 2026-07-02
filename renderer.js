@@ -38,26 +38,30 @@ document.getElementById('filter-all').addEventListener('click', () => {
   renderDashboard();
 });
 
+// Map of source id → display name for filter matching
+const sourceIdMap = {};
+
 function renderSourceFilters() {
   const container = document.getElementById('filter-buttons');
   if (!container) return;
   container.innerHTML = '';
+  sourceIdMap.length = 0;
   const enabledSources = sources.sources.filter(s => s.enabled);
-  // Group by display name
-  const nameMap = {};
+  // Group by unique source id, keyed by display name
+  const seenIds = new Set();
   enabledSources.forEach(s => {
+    if (seenIds.has(s.id)) return;
+    seenIds.add(s.id);
     const key = s.name || s.type || s.id;
-    if (!nameMap[key]) nameMap[key] = key;
-  });
-  Object.values(nameMap).forEach(name => {
+    sourceIdMap[key] = s.id;
     const btn = document.createElement('button');
     btn.className = 'filter-btn';
-    btn.dataset.filter = name;
-    btn.textContent = name;
+    btn.dataset.filter = s.id;   // match against GPU sourceId
+    btn.textContent = key;        // display human-readable name
     btn.addEventListener('click', () => {
       document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      activeFilter = name;
+      activeFilter = s.id;
       renderDashboard();
     });
     container.appendChild(btn);

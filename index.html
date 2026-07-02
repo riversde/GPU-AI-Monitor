@@ -45,6 +45,21 @@
           <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:10px;">Change names — they update on dashboard tiles immediately.</p>
           <div id="sources-list"></div>
           <button id="btn-add-source" class="btn btn-secondary" style="margin-top: 12px;">+ Add Source</button>
+          <div style="margin-top: 14px; position: relative; display: inline-block;">
+            <span class="http-info-icon" id="http-info-icon" title="HTTP source information">ℹ️</span>
+            <div class="http-tooltip" id="http-tooltip">
+              <strong>HTTP Sources (ROCm / Intel XPU)</strong><br>
+              HTTP connections require the monitoring agent to be installed on the remote endpoint.<br><br>
+              <strong>Setup:</strong><br>
+              1. Install Python 3.x on the remote machine<br>
+              2. Clone the agent: <code>git clone https://github.com/pjrivera/gpu-monitor-agent.git</code><br>
+              3. Install dependencies: <code>pip install flask</code><br>
+              4. Install <code>amd-smi</code> (ROCm) or <code>xpumanager</code> (Intel XPU)<br>
+              5. Run the agent: <code>python rocm_agent.py</code> (default port 5900)<br>
+              6. Ensure the firewall allows inbound connections on the chosen port<br><br>
+              The agent exposes a REST API at <code>/api/rocm</code> that this dashboard polls for telemetry data.
+            </div>
+          </div>
         </div>
 
         <!-- General Tab -->

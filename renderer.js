@@ -102,7 +102,7 @@ async function loadSources() {
       sources = {
         sources: [
           { id: 'ai-pc', name: 'AI PC', type: 'rocm', host: '', port: 5900, enabled: false },
-          { id: 'desktop-4090', name: 'Desktop RTX 4090', type: 'nvidia', local: true, enabled: true },
+          { id: 'desktop-4090', name: 'Local NVIDIA', type: 'nvidia', local: true, enabled: true },
         ],
         refreshInterval: 2000,
       };

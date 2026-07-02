@@ -302,8 +302,17 @@ async function testConnection() {
   const xpuSource = sources.sources.find(s => s.type === 'xpu' && s.enabled && s.host);
   const targetSource = rocmSource || xpuSource;
   if (!targetSource) {
-    msgEl.textContent = 'No ROCm/XPU source configured.';
-    msgEl.style.color = '#f87171';
+    // Check what sources ARE enabled
+    const nvidiaEnabled = sources.sources.some(s => s.type === 'nvidia' && s.enabled && s.local);
+    const hasAnyEnabled = sources.sources.some(s => s.enabled);
+    if (nvidiaEnabled && !hasAnyEnabled) {
+      msgEl.textContent = 'No HTTP sources configured. Test available for ROCm/XPU sources only.';
+    } else if (hasAnyEnabled) {
+      msgEl.textContent = 'No HTTP sources with host configured. Add an HTTP source in the Sources tab to test.';
+    } else {
+      msgEl.textContent = 'No sources enabled. Enable at least one source in the Sources tab.';
+    }
+    msgEl.style.color = '#fbbf24';
     return;
   }
 

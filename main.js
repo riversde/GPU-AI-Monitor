@@ -126,9 +126,9 @@ function createTray() {
   }
 
   if (!trayIcon) {
-    // Fallback: create a simple 16x16 blue square as PNG in memory
+    // Fallback: create a simple 32x32 blue square as PNG in memory
     trayIcon = nativeImage.createFromBuffer(Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAIklEQVQ4jWNgGAWjYBSMglEwCkYB',
+      'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAYklEQVR4nGNkaPj/n2EAAdNAWj7qgNEQGA0BEGDBmT8ubKV+njPwHs2GQykNoIMUzPgjCOZsHfwhwDTqAIbRKBhgwDTiHcBCzUJlNAqGWRowIKPyGYohwDTqAIbRKGAYWAAAmiUIks2jDeMAAAAASUVORK5CYII=',
       'base64'
     ));
   }
@@ -212,9 +212,32 @@ ipcMain.handle('run-nvidia-smi', async () => {
           resolve({ error: 'Unexpected nvidia-smi output format' });
           return;
         }
+        // Detect integrated vs discrete GPU by name analysis
+        const gpuName = parts[0] || 'NVIDIA GPU';
+        const nameLower = gpuName.toLowerCase();
+        let displayName = gpuName;
+        // Check for known integrated GPU patterns
+        const isIntegrated = nameLower.includes('integrated') ||
+                             nameLower.includes('igpu') ||
+                             nameLower.includes('on-device') ||
+                             nameLower.includes('on die') ||
+                             nameLower.includes('on-die') ||
+                             nameLower.includes('embedded');
+        // Check for virtual/GPU compute patterns
+        const isVirtual = nameLower.includes('vgpu') ||
+                          nameLower.includes('grid') ||
+                          nameLower.includes('virtual');
+        if (isVirtual) {
+          displayName = `vGPU (${gpuName})`;
+        } else if (isIntegrated) {
+          displayName = `iGPU (${gpuName})`;
+        } else {
+          displayName = gpuName; // dGPU by default for discrete GPUs
+        }
         resolve({
           gpu: 0,
-          name: parts[0] || 'NVIDIA GPU',
+          name: displayName,
+          model: gpuName,
           temperature: parseFloat(parts[1]) || 0,
           memory_used: parts[2],
           memory_total: parts[3],
@@ -229,7 +252,6 @@ ipcMain.handle('run-nvidia-smi', async () => {
       });
   });
 });
-
 // IPC: Window controls from renderer
 ipcMain.on('window-minimize', () => {
   if (mainWindow) mainWindow.minimize();

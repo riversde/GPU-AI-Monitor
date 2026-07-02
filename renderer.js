@@ -12,6 +12,7 @@ let pollCount = 0;
 let activeFilter = 'all';
 let gpuOrder = [];       // persistent card order (array of unique gpu keys)
 let dragState = null;    // { el, index, startY, sourceId, gpuIndex }
+let reorderMode = false; // whether cards are draggable
 
 // DOM elements
 const elGpuContainer = document.getElementById('gpu-container');
@@ -219,9 +220,15 @@ function addSourceEntry() {
   }, 50);
 }
 
-function removeSourceEntry(idx) {
+async function removeSourceEntry(idx) {
+  if (!confirm('Remove this source?')) return;
   sources.sources.splice(idx, 1);
+  // Persist immediately so it survives restart
+  if (window.electronAPI) {
+    await window.electronAPI.saveSources(sources);
+  }
   renderSourceEntries();
+  renderSourceFilters();
 }
 
 async function saveSettings() {

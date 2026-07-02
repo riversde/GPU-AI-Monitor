@@ -28,19 +28,6 @@ document.getElementById('btn-add-source').addEventListener('click', addSourceEnt
 document.getElementById('btn-minimize').addEventListener('click', minimizeWindow);
 document.getElementById('btn-close').addEventListener('click', closeWindow);
 
-// Reorder toggle
-let reorderMode = false;
-document.getElementById('btn-reorder').addEventListener('click', () => {
-  reorderMode = !reorderMode;
-  const btn = document.getElementById('btn-reorder');
-  btn.classList.toggle('active', reorderMode);
-  btn.title = reorderMode ? 'Click to exit reorder mode' : 'Reorder Cards';
-  elGpuContainer.querySelectorAll('.gpu-card').forEach(card => {
-    card.draggable = reorderMode;
-    card.style.opacity = reorderMode ? '0.85' : '1';
-  });
-});
-
 // Filter buttons — static "All" + dynamic per-source
 document.getElementById('filter-all').addEventListener('click', () => {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -88,6 +75,10 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // Electron IPC
 if (window.electronAPI) {
   window.electronAPI.onOpenSettings?.(() => openSettings());
+  // Live always-on-top toggle
+  document.getElementById('always-on-top-check')?.addEventListener('change', (e) => {
+    window.electronAPI.setAlwaysOnTop(e.target.checked);
+  });
 }
 
 // ====== Settings ======
@@ -131,10 +122,17 @@ async function loadSources() {
   }
 }
 
-function openSettings() {
+async function openSettings() {
   renderSourceEntries();
   document.getElementById('refresh-interval').value = (refreshInterval / 1000) || 2;
   document.getElementById('settings-message').textContent = '';
+  // Load current always-on-top state
+  if (window.electronAPI) {
+    try {
+      const aot = await window.electronAPI.getAlwaysOnTop();
+      document.getElementById('always-on-top-check').checked = aot;
+    } catch {}
+  }
   elSettingsModal.classList.remove('hidden');
 }
 
@@ -150,9 +148,9 @@ function renderSourceEntries() {
         <strong>${src.name || 'Untitled'}</strong>
         <div style="display:flex;gap:4px;align-items:center;">
           <select class="source-type-select" data-index="${idx}">
-            <option value="rocm" ${src.type === 'rocm' ? 'selected' : ''}>ROCm (HTTP)</option>
+            <option value="rocm" ${src.type === 'rocm' ? 'selected' : ''}>HTTP (ROCm)</option>
             <option value="nvidia" ${src.type === 'nvidia' ? 'selected' : ''}>NVIDIA (Local)</option>
-            <option value="xpu" ${src.type === 'xpu' ? 'selected' : ''}>Intel XPU (HTTP)</option>
+            <option value="xpu" ${src.type === 'xpu' ? 'selected' : ''}>HTTP (Intel XPU)</option>
           </select>
           <button class="btn btn-secondary" onclick="removeSourceEntry(${idx})" style="padding:3px 8px;font-size:0.75rem;" title="Remove source">✕</button>
         </div>
@@ -208,6 +206,15 @@ function addSourceEntry() {
     enabled: true,
   });
   renderSourceEntries();
+  // Focus the name field of the new entry
+  setTimeout(() => {
+    const entries = document.querySelectorAll('.source-entry');
+    const lastEntry = entries[entries.length - 1];
+    if (lastEntry) {
+      const nameInput = lastEntry.querySelector('[data-field="name"]');
+      if (nameInput) { nameInput.focus(); nameInput.select(); }
+    }
+  }, 50);
 }
 
 function removeSourceEntry(idx) {
@@ -231,6 +238,12 @@ async function saveSettings() {
 
   sources.refreshInterval = (parseInt(document.getElementById('refresh-interval').value) || 2) * 1000;
   refreshInterval = sources.refreshInterval;
+
+  // Handle always-on-top toggle
+  const aotCheck = document.getElementById('always-on-top-check');
+  if (aotCheck && window.electronAPI) {
+    window.electronAPI.setAlwaysOnTop(aotCheck.checked);
+  }
 
   if (window.electronAPI) {
     await window.electronAPI.saveSources(sources);
@@ -325,7 +338,7 @@ async function fetchROCM(source) {
         memory_percent: gpu.vram_percent || 0,
         power_draw: gpu.power_draw || 0,
         power_limit: 0,
-        fan_speed: gpu.fan_speed || 0,
+        fan_speed: gpu.fan_pct != null ? gpu.fan_pct : (gpu.fan_speed > 0 ? Math.round((gpu.fan_speed / 255) * 100) : 0),
         fan_rpm: gpu.fan_rpm || 0,
         utilization: gpu.gpu_use || 0,
         clock_gr: gpu.sclk || 'N/A',
@@ -542,7 +555,9 @@ function renderDashboard(allGpus) {
     const sourceClass = gpu.sourceType === 'rocm' ? 'source-rocm' : gpu.sourceType === 'xpu' ? 'source-xpu' : 'source-nvidia';
 
     return `
-      <div class="gpu-card ${sourceClass}" data-card-key="${gpu._cardKey}" draggable="true">
+      <div class="gpu-card ${sourceClass}" data-card-key="${gpu._cardKey}">
+        <!-- Drag handle -->
+        <span class="drag-handle" title="Drag to reorder">⠿</span>
         <h2>
           <span>${gpu.name || gpu.model || 'GPU ' + (gpu.gpu ?? 0)}</span>
           <span class="gpu-source-tag">${escapeHtml(gpu.sourceName)}</span>
@@ -627,87 +642,102 @@ function renderDashboard(allGpus) {
   });
 }
 
-// ====== Drag & Drop ======
+// ====== Drag & Drop (handle-based) ======
 
 function attachDragEvents() {
-  const cards = elGpuContainer.querySelectorAll('.gpu-card[draggable="true"]');
-
-  cards.forEach(card => {
-    card.addEventListener('dragstart', onDragStart);
-    card.addEventListener('dragover', onDragOver);
-    card.addEventListener('dragenter', onDragEnter);
-    card.addEventListener('dragleave', onDragLeave);
-    card.addEventListener('drop', onDrop);
-    card.addEventListener('dragend', onDragEnd);
+  const handles = elGpuContainer.querySelectorAll('.drag-handle');
+  handles.forEach(handle => {
+    handle.addEventListener('mousedown', onHandleMouseDown);
   });
 }
 
-function onDragStart(e) {
+let dragGhost = null;
+let dragCard = null;
+let dragKey = null;
+let mouseOffset = { x: 0, y: 0 };
+
+function onHandleMouseDown(e) {
+  e.preventDefault();
   const card = e.target.closest('.gpu-card');
   if (!card) return;
 
-  dragState = {
-    el: card,
-    key: card.dataset.cardKey,
-  };
+  dragCard = card;
+  dragKey = card.dataset.cardKey;
 
-  card.classList.add('dragging');
-  e.dataTransfer.effectAllowed = 'move';
-  // Set a transparent drag image so the browser doesn't show the default ghost
-  const img = new Image();
-  img.src = 'data:image/gif,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=';
-  e.dataTransfer.setDragImage(img, 0, 0);
+  // Create a ghost element that follows the cursor
+  dragGhost = card.cloneNode(true);
+  dragGhost.style.position = 'fixed';
+  dragGhost.style.zIndex = '9999';
+  dragGhost.style.pointerEvents = 'none';
+  dragGhost.style.opacity = '0.85';
+  dragGhost.style.transform = 'scale(1.03) rotate(1deg)';
+  dragGhost.style.boxShadow = '0 8px 32px rgba(0,0,0,0.5)';
+  dragGhost.style.width = card.offsetWidth + 'px';
+  document.body.appendChild(dragGhost);
+
+  mouseOffset.x = e.clientX;
+  mouseOffset.y = e.clientY;
+
+  // Dim the original card
+  card.style.opacity = '0.25';
+  card.style.transition = 'opacity 0.15s';
+
+  // Highlight potential drop targets
+  elGpuContainer.querySelectorAll('.gpu-card').forEach(c => {
+    if (c !== card) c.classList.add('drag-over');
+  });
+
+  document.addEventListener('mousemove', onDragMouseMove);
+  document.addEventListener('mouseup', onDragMouseUp);
 }
 
-function onDragOver(e) {
-  e.preventDefault();
-  if (!dragState) return;
-  e.dataTransfer.dropEffect = 'move';
+function onDragMouseMove(e) {
+  if (!dragGhost) return;
+  dragGhost.style.left = (e.clientX - 20) + 'px';
+  dragGhost.style.top = (e.clientY - 20) + 'px';
+
+  // Highlight the card under cursor
+  elGpuContainer.querySelectorAll('.gpu-card').forEach(c => {
+    const rect = c.getBoundingClientRect();
+    const over = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+    c.classList.toggle('drag-over', over && c !== dragCard);
+  });
 }
 
-function onDragEnter(e) {
-  e.preventDefault();
-  const target = e.target.closest('.gpu-card');
-  if (target && target !== dragState.el) {
-    target.classList.add('drag-over');
+function onDragMouseUp(e) {
+  document.removeEventListener('mousemove', onDragMouseMove);
+  document.removeEventListener('mouseup', onDragMouseUp);
+
+  if (!dragGhost || !dragCard) return;
+
+  // Find drop target (card under cursor, excluding self)
+  let targetCard = null;
+  elGpuContainer.querySelectorAll('.gpu-card').forEach(c => {
+    const rect = c.getBoundingClientRect();
+    if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+      targetCard = c;
+    }
+    c.classList.remove('drag-over');
+  });
+
+  // Remove ghost and restore original
+  document.body.removeChild(dragGhost);
+  dragGhost = null;
+  dragCard.style.opacity = '1';
+
+  if (targetCard && targetCard !== dragCard) {
+    const fromIdx = gpuOrder.indexOf(dragKey);
+    const toIdx = gpuOrder.indexOf(targetCard.dataset.cardKey);
+    if (fromIdx !== -1 && toIdx !== -1) {
+      const [moved] = gpuOrder.splice(fromIdx, 1);
+      gpuOrder.splice(toIdx, 0, moved);
+      try { localStorage.setItem('gpu-card-order', JSON.stringify(gpuOrder)); } catch {}
+      pollAll();
+    }
   }
-}
 
-function onDragLeave(e) {
-  const target = e.target.closest('.gpu-card');
-  if (target) {
-    target.classList.remove('drag-over');
-  }
-}
-
-function onDrop(e) {
-  e.preventDefault();
-  const target = e.target.closest('.gpu-card');
-  if (!target || !dragState || target === dragState.el) return;
-
-  // Swap positions in gpuOrder
-  const fromIdx = gpuOrder.indexOf(dragState.key);
-  const toIdx = gpuOrder.indexOf(target.dataset.cardKey);
-  if (fromIdx === -1 || toIdx === -1) return;
-
-  // Move the dragged key to the target position
-  const [moved] = gpuOrder.splice(fromIdx, 1);
-  gpuOrder.splice(toIdx, 0, moved);
-
-  // Persist
-  try { localStorage.setItem('gpu-card-order', JSON.stringify(gpuOrder)); } catch {}
-
-  // Re-render with new order
-  pollAll();
-}
-
-function onDragEnd() {
-  if (dragState) {
-    dragState.el.classList.remove('dragging');
-    dragState = null;
-  }
-  // Clear all drag-over highlights
-  elGpuContainer.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  dragCard = null;
+  dragKey = null;
 }
 
 // ====== Polling ======

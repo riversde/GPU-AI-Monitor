@@ -1,14 +1,47 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const isDev = !app.isPackaged;
 
 let mainWindow = null;
 let tray = null;
 
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'config.json');
+}
+
+function loadWindowBounds() {
+  try {
+    const data = JSON.parse(fs.readFileSync(getConfigPath(), 'utf-8'));
+    if (data.windowBounds && typeof data.windowBounds.x === 'number') {
+      return data.windowBounds;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function saveWindowBounds(bounds) {
+  try {
+    const data = JSON.parse(fs.readFileSync(getConfigPath(), 'utf-8'));
+    data.windowBounds = bounds;
+    fs.writeFileSync(getConfigPath(), JSON.stringify(data, null, 2));
+  } catch (e) {
+    // Config may not exist yet — create minimal structure
+    const existing = { sources: [], refreshInterval: 2000 };
+    try {
+      const raw = fs.readFileSync(getConfigPath(), 'utf-8');
+      Object.assign(existing, JSON.parse(raw));
+    } catch {}
+    existing.windowBounds = bounds;
+    fs.writeFileSync(getConfigPath(), JSON.stringify(existing, null, 2));
+  }
+}
+
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 960,
-    height: 720,
+  const savedBounds = loadWindowBounds();
+  const winOpts = {
+    width: savedBounds?.width || 960,
+    height: savedBounds?.height || 720,
     minWidth: 700,
     minHeight: 500,
     show: true,
@@ -20,9 +53,24 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
-  });
+  };
+
+  if (savedBounds && savedBounds.x != null) {
+    winOpts.x = savedBounds.x;
+    winOpts.y = savedBounds.y;
+  }
+
+  mainWindow = new BrowserWindow(winOpts);
 
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+
+  // Persist window bounds on move/resize
+  mainWindow.on('resize', () => {
+    try { saveWindowBounds(mainWindow.getBounds()); } catch {}
+  });
+  mainWindow.on('move', () => {
+    try { saveWindowBounds(mainWindow.getBounds()); } catch {}
+  });
 
   if (isDev) {
     mainWindow.loadFile('index.html');
@@ -88,11 +136,15 @@ function createTray() {
   });
 }
 
-// IPC: Save sources config
+// IPC: Save sources config — also persist window bounds
 ipcMain.handle('save-sources', async (_event, sources) => {
   const fs = require('fs');
   const configPath = path.join(app.getPath('userData'), 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify(sources, null, 2));
+  // Merge with existing config to preserve windowBounds
+  let existing = {};
+  try { existing = JSON.parse(fs.readFileSync(configPath, 'utf-8')); } catch {}
+  const merged = { ...existing, ...sources };
+  fs.writeFileSync(configPath, JSON.stringify(merged, null, 2));
   return { ok: true };
 });
 
@@ -103,7 +155,6 @@ ipcMain.handle('load-sources', async () => {
   if (fs.existsSync(configPath)) {
     return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   }
-  // Default sources — replace with your own config via Settings panel
   return {
     sources: [
       { id: 'remote-gpu', name: 'Remote GPU', type: 'rocm', host: '', port: 5900, enabled: false },
@@ -160,8 +211,16 @@ ipcMain.on('window-close', () => {
   if (mainWindow) mainWindow.close();
 });
 
+// IPC: Always on top
+ipcMain.on('set-always-on-top', (_event, enabled) => {
+  if (mainWindow) mainWindow.setAlwaysOnTop(enabled);
+});
+
+ipcMain.handle('get-always-on-top', () => {
+  return mainWindow ? mainWindow.isAlwaysOnTop() : false;
+});
+
 app.whenReady().then(() => {
-  createWindow();
   createTray();
 
   app.on('activate', () => {

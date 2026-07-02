@@ -123,8 +123,25 @@ body {
 }
 
 .gpu-card:hover { border-color: rgba(255,255,255,0.2); }
-.gpu-card.dragging { opacity: 0.4; transform: scale(0.96); }
-.gpu-card.drag-over { border-color: var(--accent-green) !important; box-shadow: 0 0 12px rgba(0,210,255,0.3); }
+.gpu-card.dragging { opacity: 0.25; }
+.gpu-card.drag-over { border-color: var(--accent-green) !important; box-shadow: 0 0 16px rgba(0,210,255,0.35), inset 0 0 8px rgba(0,210,255,0.05); transform: scale(1.01); }
+
+/* Drag handle */
+.drag-handle {
+  position: absolute;
+  top: 8px;
+  left: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: grab;
+  opacity: 0.4;
+  transition: opacity 0.2s, color 0.2s;
+  user-select: none;
+  line-height: 1;
+}
+.drag-handle:hover { opacity: 1; color: var(--accent-green); cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
+.gpu-card h2 { margin-left: 20px; }
 
 /* Source accent colours */
 .gpu-card.source-rocm { border-left: 3px solid var(--rocm-cyan); }

@@ -21,8 +21,6 @@
         <button id="filter-all" class="filter-btn active" data-filter="all">All</button>
         <div id="filter-buttons" style="display:inline-flex;gap:4px;"></div>
         <span class="filter-separator"></span>
-        <!-- Reorder mode -->
-        <button id="btn-reorder" class="btn-icon" title="Reorder Cards" style="font-size:0.9rem;">↕️</button>
         <!-- Window controls -->
         <button id="btn-settings" class="btn-icon" title="Settings">⚙️</button>
         <button id="btn-minimize" class="btn-icon" title="Minimize">─</button>
@@ -53,6 +51,10 @@
           <div class="form-group">
             <label for="refresh-interval">Refresh Interval (seconds)</label>
             <input type="number" id="refresh-interval" placeholder="2" min="1" max="60">
+          </div>
+          <div class="source-entry-toggle" style="padding: 10px; background: var(--bg-primary); border-radius: 8px;">
+            <input type="checkbox" id="always-on-top-check">
+            <span>Always on Top (window stays above others)</span>
           </div>
         </div>
 

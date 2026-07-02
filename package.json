@@ -1,5 +1,5 @@
 {
-  "name": "gpu-monitor-ai",
+  "name": "GPU-Monitor-AI",
   "version": "1.0.0",
   "description": "GPU Monitor for AI Workloads — Multi-source GPU telemetry dashboard",
   "main": "main.js",

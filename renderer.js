@@ -155,7 +155,7 @@ function renderSourceEntries() {
             <option value="nvidia" ${src.type === 'nvidia' ? 'selected' : ''}>NVIDIA (Local)</option>
             <option value="xpu" ${src.type === 'xpu' ? 'selected' : ''}>HTTP (Intel XPU)</option>
           </select>
-          <button class="btn btn-secondary" onclick="removeSourceEntry(${idx})" style="padding:3px 8px;font-size:0.75rem;" title="Remove source">✕</button>
+          <button class="btn btn-secondary source-remove-btn" data-index="${idx}" style="padding:3px 8px;font-size:0.75rem;" title="Remove source">✕</button>
         </div>
       </div>
       <div class="source-entry-fields">
@@ -196,6 +196,14 @@ function renderSourceEntries() {
       handle.style.marginRight = '8px';
       label.insertBefore(handle, label.firstChild);
     }
+  });
+
+  // Attach remove button listeners (using event delegation on the list)
+  list.querySelectorAll('.source-remove-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.index);
+      removeSourceEntry(idx);
+    });
   });
 }
 

@@ -3,6 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const isDev = !app.isPackaged;
 
+// Disable GPU acceleration before app ready — fixes silent window failures on Windows
+app.commandLine.appendSwitch('disable-gpu');
+try { app.disableHardwareAcceleration(); } catch {}
+
 let mainWindow = null;
 let tray = null;
 
@@ -44,7 +48,7 @@ function createWindow() {
     height: savedBounds?.height || 720,
     minWidth: 700,
     minHeight: 500,
-    show: true,
+    show: false,
     fullscreenable: false,
     backgroundColor: '#1a1a2e',
     webPreferences: {
@@ -62,6 +66,14 @@ function createWindow() {
 
   mainWindow = new BrowserWindow(winOpts);
 
+  // Log renderer errors
+  mainWindow.webContents.on('did-fail-load', (event, code, desc) => {
+    console.error('FAILED TO LOAD:', code, desc);
+  });
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    console.error('RENDERER GONE:', details.reason, details.exitCode);
+  });
+
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
 
   // Persist window bounds on move/resize
@@ -78,6 +90,22 @@ function createWindow() {
   } else {
     mainWindow.loadFile('index.html');
   }
+
+  // Show window after it's fully loaded — Windows show: true can fail silently
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  // Fallback: force show after 3s in case ready-to-show never fires
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }, 3000);
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -222,9 +250,10 @@ ipcMain.handle('get-always-on-top', () => {
 
 app.whenReady().then(() => {
   createTray();
+  createWindow();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   });
 });
 

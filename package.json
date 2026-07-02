@@ -4,7 +4,7 @@
   "description": "GPU Monitor for AI Workloads — Multi-source GPU telemetry dashboard",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "electron . --disable-gpu",
     "build:win": "electron-builder --win --x64"
   },
   "build": {

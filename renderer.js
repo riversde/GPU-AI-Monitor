@@ -3,6 +3,8 @@
  * Unified multi-source GPU telemetry dashboard.
  */
 
+console.log('[Renderer] GPU Monitor loading...');
+
 let sources = [];
 let refreshInterval = 2000;
 let pollTimer = null;

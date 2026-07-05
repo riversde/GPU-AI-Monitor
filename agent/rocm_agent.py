@@ -34,6 +34,39 @@ def get_gpu_name(device_id):
     return None
 
 
+# ── Device ID → Market Name lookup ────────────────────────────────
+# amd-smi reports a generic "AMD Radeon Graphics" for several RDNA4
+# chips; the unique DEVICE_ID (and optional SUBSYSTEM_ID) resolves it.
+GPU_NAME_MAP = {
+    # RDNA4 – Navi48  (W9700 PRO)
+    (0x7551, 0x5413): "Radeon PRO W9700 PRO",
+    (0x7551,):         "Radeon PRO W9700 PRO",
+    # RDNA4 – Navi44  (RX 9060 XT)
+    (0x7590, 0x5407): "Radeon RX 9060 XT",
+    (0x7590,):        "Radeon RX 9060 XT",
+}
+
+
+def _resolve_gpu_name(device_id_hex, subsystem_id_hex=None):
+    """Resolve a GPU DEVICE_ID to its human-readable market name."""
+    if not device_id_hex:
+        return None
+    try:
+        did = int(str(device_id_hex), 16)
+    except (TypeError, ValueError):
+        return None
+
+    # Try (DEVICE_ID, SUBSYSTEM_ID) first, then DEVICE_ID only
+    key = (did, subsystem_id_hex) if subsystem_id_hex else (did,)
+    if key in GPU_NAME_MAP:
+        return GPU_NAME_MAP[key]
+    # Fallback: try just the device ID against all entries
+    for map_key, name in GPU_NAME_MAP.items():
+        if map_key[0] == did:
+            return name
+    return None
+
+
 def _calc_fan_pct(fan_speed, fan_max):
     """Calculate fan percentage from raw PWM values, handling non-numeric max."""
     try:
@@ -50,15 +83,24 @@ def parse_amdsmi_json():
     """Parse amd-smi JSON output for all GPUs."""
     gpus = []
 
-    # Get GPU names once (static info)
-    gpu_names = {}
+    # Extract GPU IDs (device_id, subsystem_id) from static text output
+    # so we can resolve generic MARKET_NAME labels to actual product names.
+    gpu_ids_map = {}
     raw_static, _, _ = run_cmd("amd-smi static 2>&1")
     current_gpu = None
     for line in raw_static.split('\n'):
         if line.startswith('GPU: '):
             current_gpu = int(line.split(':')[1].strip())
-        elif 'MARKET_NAME' in line and current_gpu is not None:
-            gpu_names[current_gpu] = line.split(':', 1)[1].strip()
+        elif 'DEVICE_ID' in line and current_gpu is not None:
+            gpu_ids_map[current_gpu] = {
+                'device_id': line.split(':', 1)[1].strip(),
+                'subsystem_id': None,
+                'market_name': None,
+            }
+        elif 'SUBSYSTEM_ID' in line and current_gpu in gpu_ids_map:
+            gpu_ids_map[current_gpu]['subsystem_id'] = line.split(':', 1)[1].strip()
+        elif 'MARKET_NAME' in line and current_gpu in gpu_ids_map:
+            gpu_ids_map[current_gpu]['market_name'] = line.split(':', 1)[1].strip()
 
     # Get static info (VRAM, model) for each GPU
     raw_static_vram, _, _ = run_cmd("amd-smi static --vram --json 2>&1")
@@ -191,9 +233,16 @@ def parse_amdsmi_json():
         else:
             vram_percent = 0
 
+        # Resolve name: prefer DEVICE_ID lookup (handles generic "AMD Radeon Graphics")
+        resolved_name = None
+        if gpu_id in gpu_ids_map:
+            did = gpu_ids_map[gpu_id].get('device_id')
+            sid = gpu_ids_map[gpu_id].get('subsystem_id')
+            resolved_name = _resolve_gpu_name(did, sid)
+
         gpu = {
             'device_id': gpu_id,
-            'name': gpu_names.get(gpu_id, f'GPU {gpu_id}'),
+            'name': resolved_name or gpu_ids_map.get(gpu_id, {}).get('market_name', f'GPU {gpu_id}'),
             'temperature': metric.get('temperature', 0),
             'hotspot_temp': metric.get('hotspot_temp'),
             'mem_temp': metric.get('mem_temp'),

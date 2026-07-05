@@ -61,33 +61,41 @@ def detect_gpu_type():
 # amd-smi reports a generic "AMD Radeon Graphics" for several RDNA4
 # chips; the unique DEVICE_ID (and optional SUBSYSTEM_ID) resolves it.
 GPU_NAME_MAP = {
-    # RDNA4 – Navi48  (W9700 PRO)
-    (0x7551, 0x5413): "Radeon PRO W9700 PRO",
-    (0x7551,):         "Radeon PRO W9700 PRO",
+    # RDNA4 – Navi48  (W9700 PRO) — display name per user spec
+    (0x7551, 0x5413): "AMD Radeon AI PRO R9700",
+    (0x7551,):         "AMD Radeon AI PRO R9700",
     # RDNA4 – Navi44  (RX 9060 XT)
     (0x7590, 0x5407): "Radeon RX 9060 XT",
     (0x7590,):        "Radeon RX 9060 XT",
 }
 
+# iGPU / CPU integrated graphics — identified by having <1GB VRAM + Ryzen CPU MARKET_NAME
+def _detect_igpu(market_name, total_vram):
+    """Return iGPU/CPU name for integrated graphics."""
+    if total_vram and total_vram <= 1024 and market_name and 'Ryzen' in market_name:
+        cpu = market_name.replace('AMD ', '').replace('Processor', '').strip()
+        return f"{cpu} (iGPU)"
+    if total_vram and total_vram <= 1024:
+        return "iGPU 512MB"
+    return None
 
-def _resolve_gpu_name(device_id_hex, subsystem_id_hex=None):
+
+def _resolve_gpu_name(device_id_hex, subsystem_id_hex, market_name=None, total_vram=None):
     """Resolve a GPU DEVICE_ID to its human-readable market name."""
     if not device_id_hex:
-        return None
+        return _detect_igpu(market_name, total_vram)
     try:
         did = int(str(device_id_hex), 16)
     except (TypeError, ValueError):
-        return None
+        return _detect_igpu(market_name, total_vram)
 
-    # Try (DEVICE_ID, SUBSYSTEM_ID) first, then DEVICE_ID only
     key = (did, subsystem_id_hex) if subsystem_id_hex else (did,)
     if key in GPU_NAME_MAP:
         return GPU_NAME_MAP[key]
-    # Fallback: try just the device ID against all entries
     for map_key, name in GPU_NAME_MAP.items():
         if map_key[0] == did:
             return name
-    return None
+    return _detect_igpu(market_name, total_vram)
 
 
 def _calc_fan_pct(fan_speed, fan_max):
@@ -235,7 +243,9 @@ def parse_amdsmi_json():
         if gpu_id in gpu_ids_map:
             did = gpu_ids_map[gpu_id].get('device_id')
             sid = gpu_ids_map[gpu_id].get('subsystem_id')
-            resolved_name = _resolve_gpu_name(did, sid)
+            mkt = gpu_ids_map[gpu_id].get('market_name')
+            vr = static.get('total_vram', 0)
+            resolved_name = _resolve_gpu_name(did, sid, mkt, vr)
 
         gpu = {
             'device_id': gpu_id,

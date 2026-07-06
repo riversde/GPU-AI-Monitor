@@ -46,7 +46,7 @@ install_apt_deps() {
     sudo apt-get install -y --no-install-recommends \
         libgtk-3-dev libnotify-dev libnss3 libxss1 libxtst6 \
         xdg-utils fonts-liberation libatspi2.0-dev \
-        libgbm1 libasound2 libpangocairo-1.0-0 \
+        libgbm1 libasound2t64 libpangocairo-1.0-0 \
         wget tar
 }
 
